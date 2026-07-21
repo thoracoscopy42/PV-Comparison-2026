@@ -6,6 +6,18 @@ __pycache__/
 # C extensions
 *.so
 
+# Datasets
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
 # Distribution / packaging
 .Python
 build/
