@@ -2,6 +2,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
+import joblib
 from sklearn.impute import SimpleImputer
 
 
@@ -302,4 +304,111 @@ def save_splits(
     test_data.to_csv(
         output_directory / "test.csv",
         index=False,
+    )
+
+def fit_scaler(
+    train_data: pd.DataFrame,
+    feature_columns: list[str],
+) -> StandardScaler:
+    scaler = StandardScaler()
+
+    scaler.fit(
+        train_data[feature_columns]
+    )
+
+    return scaler
+
+
+def apply_scaler(
+    data: pd.DataFrame,
+    feature_columns: list[str],
+    scaler: StandardScaler,
+) -> pd.DataFrame:
+    data = data.copy()
+
+    scaled_values = scaler.transform(
+        data[feature_columns]
+    )
+
+    data[feature_columns] = scaled_values
+
+    return data
+
+
+def validate_scaling(
+    name: str,
+    data: pd.DataFrame,
+    feature_columns: list[str],
+) -> None:
+    feature_values = data[
+        feature_columns
+    ].to_numpy(dtype=np.float64)
+
+    missing_values = int(
+        np.isnan(feature_values).sum()
+    )
+
+    infinite_values = int(
+        np.isinf(feature_values).sum()
+    )
+
+    print(f"\nScaling check — {name}:")
+    print(f"Missing feature values:  {missing_values}")
+    print(f"Infinite feature values: {infinite_values}")
+
+    if missing_values > 0:
+        raise ValueError(
+            f"{name} contains missing values after scaling."
+        )
+
+    if infinite_values > 0:
+        raise ValueError(
+            f"{name} contains infinite values after scaling."
+        )
+
+
+def print_train_scaling_summary(
+    train_data: pd.DataFrame,
+    feature_columns: list[str],
+) -> None:
+    means = train_data[feature_columns].mean()
+    standard_deviations = train_data[feature_columns].std(ddof=0)
+
+    print("\nTrain scaling summary:")
+    print(
+        f"Maximum absolute mean: "
+        f"{means.abs().max():.8f}"
+    )
+    print(
+        f"Maximum deviation from std=1: "
+        f"{(standard_deviations - 1.0).abs().max():.8f}"
+    )
+
+
+def save_preprocessing_objects(
+    imputer: SimpleImputer,
+    scaler: StandardScaler,
+    feature_columns: list[str],
+    output_directory: str | Path,
+) -> None:
+    output_directory = Path(output_directory)
+
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    joblib.dump(
+        imputer,
+        output_directory / "imputer.joblib",
+    )
+
+    joblib.dump(
+        scaler,
+        output_directory / "scaler.joblib",
+    )
+
+    joblib.dump(
+        feature_columns,
+        output_directory / "feature_columns.joblib",
     )

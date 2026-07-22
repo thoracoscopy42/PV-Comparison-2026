@@ -3,22 +3,27 @@ from pathlib import Path
 from src.data import (
     add_target_availability,
     apply_imputer,
+    apply_scaler,
     chronological_split,
     fit_imputer,
+    fit_scaler,
     get_feature_columns,
     load_csv,
     prepare_dataframe,
     print_missing_values,
+    print_train_scaling_summary,
     replace_infinite_values,
+    save_preprocessing_objects,
     save_splits,
     validate_imputation,
+    validate_scaling,
     validate_time_index,
 )
 
 
 RAW_DATA_PATH = Path("data/raw/pv_data.csv")
 PROCESSED_DATA_DIRECTORY = Path("data/processed")
-
+PREPROCESSING_DIRECTORY = Path("results/preprocessing")
 
 def main() -> None:
     # Loading data
@@ -118,6 +123,61 @@ def main() -> None:
         data=test_data,
         feature_columns=feature_columns,
     )
+
+
+    scaler = fit_scaler(
+        train_data=train_data,
+        feature_columns=feature_columns,
+    )
+
+    train_data = apply_scaler(
+        data=train_data,
+        feature_columns=feature_columns,
+        scaler=scaler,
+    )
+
+    validation_data = apply_scaler(
+        data=validation_data,
+        feature_columns=feature_columns,
+        scaler=scaler,
+    )
+
+    test_data = apply_scaler(
+        data=test_data,
+        feature_columns=feature_columns,
+        scaler=scaler,
+    )
+
+    validate_scaling(
+        name="train",
+        data=train_data,
+        feature_columns=feature_columns,
+    )
+
+    validate_scaling(
+        name="validation",
+        data=validation_data,
+        feature_columns=feature_columns,
+    )
+
+    validate_scaling(
+        name="test",
+        data=test_data,
+        feature_columns=feature_columns,
+    )
+
+    print_train_scaling_summary(
+        train_data=train_data,
+        feature_columns=feature_columns,
+    )
+
+    save_preprocessing_objects(
+        imputer=imputer,
+        scaler=scaler,
+        feature_columns=feature_columns,
+        output_directory=PREPROCESSING_DIRECTORY,
+    )
+
 
     # save splits
     save_splits(

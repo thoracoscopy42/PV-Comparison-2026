@@ -13,6 +13,8 @@ __pycache__/
 *.parquet
 *.feather
 
+*.joblib
+
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep
