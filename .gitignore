@@ -13,8 +13,12 @@ __pycache__/
 *.parquet
 *.feather
 
+# preprocessing objects/artifacts
 *.joblib
+*.pkl
+*.pickle
 
+results/preprocessing/
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep
