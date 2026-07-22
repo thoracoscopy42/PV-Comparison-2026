@@ -2,10 +2,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.impute import SimpleImputer
 
 
 TIMESTAMP_COLUMN = "timestamp"
 TARGET_COLUMN = "Active Power (kW)"
+TARGET_AVAILABLE_COLUMN = "target_available"
 
 
 def load_csv(file_path: str | Path) -> pd.DataFrame:
@@ -31,10 +33,14 @@ def prepare_dataframe(data: pd.DataFrame) -> pd.DataFrame:
         data = data.rename(columns={"Unnamed: 0": TIMESTAMP_COLUMN})
 
     if TIMESTAMP_COLUMN not in data.columns:
-        raise ValueError(f"Missing column: {TIMESTAMP_COLUMN}")
+        raise ValueError(
+            f"Missing timestamp column: {TIMESTAMP_COLUMN}"
+        )
 
     if TARGET_COLUMN not in data.columns:
-        raise ValueError(f"Missing target column: {TARGET_COLUMN}")
+        raise ValueError(
+            f"Missing target column: {TARGET_COLUMN}"
+        )
 
     data[TIMESTAMP_COLUMN] = pd.to_datetime(
         data[TIMESTAMP_COLUMN],
@@ -55,7 +61,9 @@ def validate_time_index(
     timestamps = data[TIMESTAMP_COLUMN]
 
     if not timestamps.is_monotonic_increasing:
-        raise ValueError("Timestamps are not sorted chronologically.")
+        raise ValueError(
+            "Timestamps are not sorted chronologically."
+        )
 
     expected_timestamps = pd.date_range(
         start=timestamps.iloc[0],
@@ -63,31 +71,59 @@ def validate_time_index(
         freq=expected_frequency,
     )
 
+    actual_timestamps = pd.DatetimeIndex(timestamps)
+
     missing_timestamps = expected_timestamps.difference(
-        pd.DatetimeIndex(timestamps)
+        actual_timestamps
     )
 
-    duplicated_timestamps = timestamps.duplicated().sum()
+    duplicated_timestamps = int(
+        timestamps.duplicated().sum()
+    )
 
     print("\nTime index:")
     print(f"First timestamp:       {timestamps.iloc[0]}")
     print(f"Last timestamp:        {timestamps.iloc[-1]}")
     print(f"Expected timestamps:   {len(expected_timestamps)}")
-    print(f"Actual timestamps:     {len(timestamps)}")
+    print(f"Actual timestamps:     {len(actual_timestamps)}")
     print(f"Missing timestamps:    {len(missing_timestamps)}")
     print(f"Duplicated timestamps: {duplicated_timestamps}")
 
     if len(missing_timestamps) > 0:
-        raise ValueError("The time index contains missing timestamps.")
+        raise ValueError(
+            "The time index contains missing timestamps."
+        )
+
+    if duplicated_timestamps > 0:
+        raise ValueError(
+            "The time index contains duplicated timestamps."
+        )
 
 
-def replace_infinite_values(data: pd.DataFrame) -> pd.DataFrame:
+def replace_infinite_values(
+    data: pd.DataFrame,
+) -> pd.DataFrame:
     data = data.copy()
 
-    numeric_columns = data.select_dtypes(include=[np.number]).columns
+    numeric_columns = data.select_dtypes(
+        include=[np.number]
+    ).columns
+
     data[numeric_columns] = data[numeric_columns].replace(
         [np.inf, -np.inf],
         np.nan,
+    )
+
+    return data
+
+
+def add_target_availability(
+    data: pd.DataFrame,
+) -> pd.DataFrame:
+    data = data.copy()
+
+    data[TARGET_AVAILABLE_COLUMN] = (
+        data[TARGET_COLUMN].notna()
     )
 
     return data
@@ -98,24 +134,39 @@ def chronological_split(
     train_ratio: float = 0.70,
     validation_ratio: float = 0.20,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if train_ratio <= 0 or validation_ratio <= 0:
-        raise ValueError("Split ratios must be greater than zero.")
+    if not 0 < train_ratio < 1:
+        raise ValueError(
+            "train_ratio must be between 0 and 1."
+        )
+
+    if not 0 < validation_ratio < 1:
+        raise ValueError(
+            "validation_ratio must be between 0 and 1."
+        )
 
     if train_ratio + validation_ratio >= 1:
         raise ValueError(
-            "Train and validation ratios must sum to less than one."
+            "Train and validation ratios must sum to less than 1."
         )
 
     number_of_rows = len(data)
 
     train_end = int(number_of_rows * train_ratio)
+
     validation_end = int(
-        number_of_rows * (train_ratio + validation_ratio)
+        number_of_rows
+        * (train_ratio + validation_ratio)
     )
 
     train_data = data.iloc[:train_end].copy()
-    validation_data = data.iloc[train_end:validation_end].copy()
-    test_data = data.iloc[validation_end:].copy()
+
+    validation_data = data.iloc[
+        train_end:validation_end
+    ].copy()
+
+    test_data = data.iloc[
+        validation_end:
+    ].copy()
 
     return train_data, validation_data, test_data
 
@@ -124,15 +175,105 @@ def print_missing_values(
     name: str,
     data: pd.DataFrame,
 ) -> None:
-    missing = data.isna().sum()
-    missing = missing[missing > 0]
+    missing_values = data.isna().sum()
+    missing_values = missing_values[
+        missing_values > 0
+    ]
 
     print(f"\nMissing values — {name}:")
 
-    if missing.empty:
+    if missing_values.empty:
         print("None")
     else:
-        print(missing.to_string())
+        print(missing_values.to_string())
+
+
+def get_feature_columns(
+    data: pd.DataFrame,
+) -> list[str]:
+    excluded_columns = {
+        TIMESTAMP_COLUMN,
+        TARGET_AVAILABLE_COLUMN,
+    }
+
+    feature_columns = [
+        column
+        for column in data.columns
+        if column not in excluded_columns
+    ]
+
+    if not feature_columns:
+        raise ValueError(
+            "No feature columns were found."
+        )
+
+    return feature_columns
+
+
+def fit_imputer(
+    train_data: pd.DataFrame,
+    feature_columns: list[str],
+) -> SimpleImputer:
+    
+    imputer = SimpleImputer(strategy="median")
+
+    imputer.fit(
+        train_data[feature_columns]
+    )
+
+    return imputer
+
+
+def apply_imputer(
+    data: pd.DataFrame,
+    feature_columns: list[str],
+    imputer: SimpleImputer,
+) -> pd.DataFrame:
+    data = data.copy()
+
+    imputed_values = imputer.transform(
+        data[feature_columns]
+    )
+
+    data[feature_columns] = imputed_values
+
+    return data
+
+
+def validate_imputation(
+    name: str,
+    data: pd.DataFrame,
+    feature_columns: list[str],
+) -> None:
+    feature_values = data[
+        feature_columns
+    ].to_numpy(dtype=np.float64)
+
+    missing_values = int(
+        np.isnan(feature_values).sum()
+    )
+
+    infinite_values = int(
+        np.isinf(feature_values).sum()
+    )
+
+    print(f"\nImputation check — {name}:")
+    print(
+        f"Missing feature values:  {missing_values}"
+    )
+    print(
+        f"Infinite feature values: {infinite_values}"
+    )
+
+    if missing_values > 0:
+        raise ValueError(
+            f"{name} still contains missing feature values."
+        )
+
+    if infinite_values > 0:
+        raise ValueError(
+            f"{name} still contains infinite feature values."
+        )
 
 
 def save_splits(
@@ -142,11 +283,23 @@ def save_splits(
     output_directory: str | Path,
 ) -> None:
     output_directory = Path(output_directory)
-    output_directory.mkdir(parents=True, exist_ok=True)
 
-    train_data.to_csv(output_directory / "train.csv", index=False)
+    output_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    train_data.to_csv(
+        output_directory / "train.csv",
+        index=False,
+    )
+
     validation_data.to_csv(
         output_directory / "validation.csv",
         index=False,
     )
-    test_data.to_csv(output_directory / "test.csv", index=False)
+
+    test_data.to_csv(
+        output_directory / "test.csv",
+        index=False,
+    )
